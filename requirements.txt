@@ -1,0 +1,11 @@
+yfinance>=0.2.40
+pandas>=2.2.2
+numpy>=1.26.4
+scikit-learn>=1.5.1
+tensorflow-cpu>=2.16.1
+optuna>=3.6.1
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.1
+joblib>=1.4.2
+prometheus-fastapi-instrumentator>=7.0.0
+pydantic>=2.8.2

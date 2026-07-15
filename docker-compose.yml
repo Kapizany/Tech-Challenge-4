@@ -1,0 +1,12 @@
+services:
+  stock-forecast-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock-forecast-api
+    environment:
+      PYTHONPATH: /app/src
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
