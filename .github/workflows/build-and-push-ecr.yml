@@ -11,6 +11,9 @@ env:
   AWS_ACCOUNT_ID: "447798043017"
   ECR_REPOSITORY: techchallenge/stock-forecast-api
   IMAGE_TAG: latest
+  RUNTIME_SECRET_NAME: stock-forecast-api-prod/runtime-config
+  ECS_CLUSTER: stock-forecast-api-prod-cluster
+  ECS_SERVICE: stock-forecast-api-prod-service
 
 permissions:
   contents: read
@@ -30,6 +33,23 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      - name: Load runtime config from Secrets Manager
+        shell: bash
+        run: |
+          secret_json="$(aws secretsmanager get-secret-value \
+            --secret-id "$RUNTIME_SECRET_NAME" \
+            --query SecretString \
+            --output text \
+            --region "$AWS_REGION")"
+
+          for key in DATA_S3_BUCKET DATA_S3_PREFIX MODELS_S3_BUCKET MODELS_S3_PREFIX; do
+            value="$(jq -r --arg key "$key" '.[$key] // empty' <<< "$secret_json")"
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+              echo "$key=$value" >> "$GITHUB_ENV"
+            fi
+          done
 
       - name: Login to Amazon ECR
         id: ecr-login
@@ -54,3 +74,16 @@ jobs:
           tags: |
             ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
             ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Force ECS deployment
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment \
+            --region "$AWS_REGION"
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION"

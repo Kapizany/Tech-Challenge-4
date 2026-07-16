@@ -23,14 +23,19 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.api.repository_url
 }
 
+output "artifact_bucket_name" {
+  description = "S3 bucket for data, model and report artifacts."
+  value       = aws_s3_bucket.artifacts.bucket
+}
+
 output "data_bucket_name" {
-  description = "S3 bucket for input data."
-  value       = aws_s3_bucket.data.bucket
+  description = "S3 bucket used by DATA_S3_BUCKET."
+  value       = aws_s3_bucket.artifacts.bucket
 }
 
 output "models_bucket_name" {
-  description = "S3 bucket for model and report artifacts."
-  value       = aws_s3_bucket.models.bucket
+  description = "S3 bucket used by MODELS_S3_BUCKET."
+  value       = aws_s3_bucket.artifacts.bucket
 }
 
 output "github_actions_role_arn" {

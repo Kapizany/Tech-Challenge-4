@@ -45,19 +45,19 @@
         },
         {
           "name": "DATA_S3_BUCKET",
-          "value": "CHANGE_ME_DATA_BUCKET"
+          "value": "CHANGE_ME_ARTIFACT_BUCKET"
         },
         {
           "name": "DATA_S3_PREFIX",
-          "value": ""
+          "value": "data"
         },
         {
           "name": "MODELS_S3_BUCKET",
-          "value": "CHANGE_ME_MODELS_BUCKET"
+          "value": "CHANGE_ME_ARTIFACT_BUCKET"
         },
         {
           "name": "MODELS_S3_PREFIX",
-          "value": ""
+          "value": "ml-data"
         }
       ],
       "environmentFiles": [],

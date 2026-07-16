@@ -293,9 +293,9 @@ Antes de registrar, ajuste:
 
 - `image`: repositório/tag real no ECR;
 - `DATA_S3_BUCKET`: bucket dos dados;
-- `MODELS_S3_BUCKET`: bucket dos modelos e relatórios;
+- `MODELS_S3_BUCKET`: bucket dos modelos e relatórios, podendo ser o mesmo de `DATA_S3_BUCKET`;
 - `DATA_S3_PREFIX` e `MODELS_S3_PREFIX`, se os objetos estiverem dentro de prefixos;
-- `taskRoleArn`, se a role atual não tiver permissão `s3:GetObject` nos buckets configurados.
+- `taskRoleArn`, se a role atual não tiver permissão `s3:GetObject` no bucket configurado.
 
 Registrar a task:
 
@@ -311,7 +311,7 @@ A task expõe a API na porta `8000` e usa health check em `/health`.
 
 Também existe uma stack Terraform em `infra/terraform/` para criar a infraestrutura AWS principal:
 
-- buckets S3 de dados e modelos;
+- bucket S3 único para dados, modelos e relatórios;
 - repositório ECR;
 - cluster ECS Fargate;
 - task definition e service;
@@ -320,7 +320,7 @@ Também existe uma stack Terraform em `infra/terraform/` para criar a infraestru
 - CloudWatch Logs;
 - roles IAM para ECS;
 - role IAM para GitHub Actions publicar imagem no ECR;
-- segredo no AWS Secrets Manager com a configuração de buckets/prefixos.
+- segredo no AWS Secrets Manager com a configuração de bucket/prefixos.
 
 Como usar:
 
@@ -329,6 +329,10 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 ```
 
 Edite `infra/terraform/terraform.tfvars` e depois rode:
+
+- `artifact_bucket_name`: bucket único usado para dados, modelos e relatórios;
+- `data_s3_prefix`: prefixo dos arquivos de dados, por exemplo `data`;
+- `models_s3_prefix`: prefixo dos modelos e relatórios, por exemplo `ml-data`.
 
 ```bash
 cd infra/terraform
@@ -343,7 +347,6 @@ Depois do `apply`, copie o output `github_actions_role_arn` e cadastre no GitHub
 AWS_ROLE_TO_ASSUME=<github_actions_role_arn>
 ```
 
-Importante: Terraform não adota automaticamente recursos que já existem fora do state. Se um bucket, role, repositório ECR ou provider OIDC já existir com o mesmo nome, use `terraform import`, mude o nome via variável ou ajuste `create_github_oidc_provider = false` quando o OIDC provider do GitHub já existir na conta.
 
 ## GitHub Actions
 
@@ -371,9 +374,12 @@ Esse secret deve apontar para uma IAM Role que o GitHub Actions possa assumir vi
 - `ecr:DescribeRepositories`;
 - `ecr:InitiateLayerUpload`;
 - `ecr:PutImage`;
-- `ecr:UploadLayerPart`.
+- `ecr:UploadLayerPart`;
+- `ecs:DescribeServices`;
+- `ecs:UpdateService`;
+- `secretsmanager:GetSecretValue` no secret `stock-forecast-api-prod/runtime-config`.
 
-O workflow cria o repositório `techchallenge/stock-forecast-api` caso ele ainda não exista, faz build com o `Dockerfile` do projeto e publica as tags `latest` e SHA do commit.
+O workflow lê o secret `stock-forecast-api-prod/runtime-config` no AWS Secrets Manager e exporta como variáveis de ambiente `DATA_S3_BUCKET`, `DATA_S3_PREFIX`, `MODELS_S3_BUCKET` e `MODELS_S3_PREFIX` para os passos seguintes. Depois cria o repositório `techchallenge/stock-forecast-api` caso ele ainda não exista, faz build com o `Dockerfile` do projeto, publica as tags `latest` e SHA do commit, força um novo deployment do serviço `stock-forecast-api-prod-service` no cluster `stock-forecast-api-prod-cluster` e espera o ECS estabilizar.
 
 ## Recuperação de Artefatos no S3
 
@@ -384,7 +390,7 @@ Variáveis suportadas:
 | Variável | Uso |
 | --- | --- |
 | `DATA_S3_BUCKET` | Bucket para arquivos em `data/`, como `data/raw/PETR4.SA.csv`. |
-| `MODELS_S3_BUCKET` | Bucket para arquivos em `models/` e `reports/`. |
+| `MODELS_S3_BUCKET` | Bucket para arquivos em `models/` e `reports/`. Pode ser o mesmo de `DATA_S3_BUCKET`. |
 | `DATA_S3_PREFIX` | Prefixo opcional para dados. |
 | `MODELS_S3_PREFIX` | Prefixo opcional para modelos e relatórios. |
 | `AWS_ACCESS_KEY_ID` | Credencial AWS, se necessário no ambiente. |
@@ -411,11 +417,13 @@ Com `MODELS_S3_PREFIX=tech-challenge`, por exemplo, o modelo LSTM será buscado 
 s3://$MODELS_S3_BUCKET/tech-challenge/models/lstm.keras
 ```
 
-Exemplo local:
+Exemplo local com bucket único:
 
 ```bash
-export DATA_S3_BUCKET=meu-bucket-dados
-export MODELS_S3_BUCKET=meu-bucket-modelos
+export DATA_S3_BUCKET=meu-bucket-artifacts
+export MODELS_S3_BUCKET=meu-bucket-artifacts
+export DATA_S3_PREFIX=data
+export MODELS_S3_PREFIX=ml-data
 export AWS_DEFAULT_REGION=us-east-1
 
 python3 scripts/orchestrate.py --skip-train
@@ -424,8 +432,10 @@ python3 scripts/orchestrate.py --skip-train
 Exemplo com Docker Compose:
 
 ```bash
-DATA_S3_BUCKET=meu-bucket-dados \
-MODELS_S3_BUCKET=meu-bucket-modelos \
+DATA_S3_BUCKET=meu-bucket-artifacts \
+MODELS_S3_BUCKET=meu-bucket-artifacts \
+DATA_S3_PREFIX=data \
+MODELS_S3_PREFIX=ml-data \
 AWS_DEFAULT_REGION=us-east-1 \
 docker compose up --build
 ```

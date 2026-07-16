@@ -13,3 +13,5 @@ reports/*.json
 !reports/.gitkeep
 terraform.tfvars
 .terraform/
+*.tfstate
+*.tfstate.*

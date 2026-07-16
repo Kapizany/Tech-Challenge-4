@@ -4,8 +4,7 @@ This Terraform stack provisions the AWS infrastructure needed to run the stock f
 
 ## Resources
 
-- S3 bucket for data artifacts.
-- S3 bucket for model/report artifacts.
+- Single S3 bucket for data, model and report artifacts.
 - ECR repository for the API image.
 - ECS cluster, task definition and service.
 - Application Load Balancer with `/health` target health check.
@@ -27,8 +26,9 @@ Edit:
 
 - `github_owner`
 - `github_repo`
-- `data_bucket_name`
-- `models_bucket_name`
+- `artifact_bucket_name`
+- `data_s3_prefix`
+- `models_s3_prefix`
 
 Then run:
 
@@ -53,4 +53,4 @@ Terraform does not automatically adopt pre-existing resources with the same name
 - change the variable value to create a new resource;
 - set `create_github_oidc_provider = false` if only the GitHub OIDC provider already exists.
 
-S3 bucket names are globally unique, so the bucket variables must be unique across AWS.
+S3 bucket names are globally unique, so `artifact_bucket_name` must be unique across AWS. Data and model files are separated by prefix inside the same bucket.

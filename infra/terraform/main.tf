@@ -2,6 +2,12 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+  artifact_bucket_name = coalesce(
+    var.artifact_bucket_name,
+    var.data_bucket_name,
+    var.models_bucket_name,
+    ""
+  )
   common_tags = merge(
     {
       Project     = var.project_name
@@ -12,34 +18,28 @@ locals {
   )
 }
 
-resource "aws_s3_bucket" "data" {
-  bucket = var.data_bucket_name
+resource "aws_s3_bucket" "artifacts" {
+  bucket = local.artifact_bucket_name
   tags   = local.common_tags
+
+  lifecycle {
+    precondition {
+      condition     = local.artifact_bucket_name != ""
+      error_message = "Set artifact_bucket_name with the shared S3 bucket name."
+    }
+  }
 }
 
-resource "aws_s3_bucket" "models" {
-  bucket = var.models_bucket_name
-  tags   = local.common_tags
-}
-
-resource "aws_s3_bucket_public_access_block" "data" {
-  bucket                  = aws_s3_bucket.data.id
+resource "aws_s3_bucket_public_access_block" "artifacts" {
+  bucket                  = aws_s3_bucket.artifacts.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_public_access_block" "models" {
-  bucket                  = aws_s3_bucket.models.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
-  bucket = aws_s3_bucket.data.id
+resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -48,26 +48,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
   }
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "models" {
-  bucket = aws_s3_bucket.models.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_versioning" "data" {
-  bucket = aws_s3_bucket.data.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_versioning" "models" {
-  bucket = aws_s3_bucket.models.id
+resource "aws_s3_bucket_versioning" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
 
   versioning_configuration {
     status = "Enabled"
@@ -222,17 +204,18 @@ resource "aws_ecs_cluster" "api" {
 }
 
 resource "aws_secretsmanager_secret" "runtime_config" {
-  name        = "${local.name_prefix}/runtime-config"
-  description = "Runtime configuration for the stock forecast API."
-  tags        = local.common_tags
+  name                    = "${local.name_prefix}/runtime-config"
+  description             = "Runtime configuration for the stock forecast API."
+  recovery_window_in_days = var.secret_recovery_window_in_days
+  tags                    = local.common_tags
 }
 
 resource "aws_secretsmanager_secret_version" "runtime_config" {
   secret_id = aws_secretsmanager_secret.runtime_config.id
   secret_string = jsonencode({
-    DATA_S3_BUCKET   = aws_s3_bucket.data.bucket
+    DATA_S3_BUCKET   = aws_s3_bucket.artifacts.bucket
     DATA_S3_PREFIX   = var.data_s3_prefix
-    MODELS_S3_BUCKET = aws_s3_bucket.models.bucket
+    MODELS_S3_BUCKET = aws_s3_bucket.artifacts.bucket
     MODELS_S3_PREFIX = var.models_s3_prefix
   })
 }
@@ -264,6 +247,14 @@ data "aws_iam_policy_document" "ecs_execution_secrets" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.runtime_config.arn]
   }
+
+  statement {
+    actions = [
+      "ecs:DescribeServices",
+      "ecs:UpdateService"
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "ecs_execution_secrets" {
@@ -280,19 +271,13 @@ resource "aws_iam_role" "ecs_task" {
 
 data "aws_iam_policy_document" "ecs_task_s3" {
   statement {
-    actions = ["s3:ListBucket"]
-    resources = [
-      aws_s3_bucket.data.arn,
-      aws_s3_bucket.models.arn
-    ]
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.artifacts.arn]
   }
 
   statement {
-    actions = ["s3:GetObject"]
-    resources = [
-      "${aws_s3_bucket.data.arn}/*",
-      "${aws_s3_bucket.models.arn}/*"
-    ]
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/*"]
   }
 }
 
@@ -468,6 +453,11 @@ data "aws_iam_policy_document" "github_actions_ecr" {
       "ecr:UploadLayerPart"
     ]
     resources = [aws_ecr_repository.api.arn]
+  }
+
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.runtime_config.arn]
   }
 }
 

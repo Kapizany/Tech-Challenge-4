@@ -62,14 +62,22 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "data_bucket_name" {
-  description = "S3 bucket name for datasets. Must be globally unique."
+variable "artifact_bucket_name" {
+  description = "S3 bucket name for data, model and report artifacts. Must be globally unique."
   type        = string
+  default     = null
+}
+
+variable "data_bucket_name" {
+  description = "Deprecated. Use artifact_bucket_name. Kept for compatibility with older terraform.tfvars files."
+  type        = string
+  default     = null
 }
 
 variable "models_bucket_name" {
-  description = "S3 bucket name for models and reports. Must be globally unique."
+  description = "Deprecated. Use artifact_bucket_name. Kept for compatibility with older terraform.tfvars files."
   type        = string
+  default     = null
 }
 
 variable "data_s3_prefix" {
@@ -128,6 +136,12 @@ variable "create_github_oidc_provider" {
   description = "Create the GitHub Actions OIDC provider. Set false if it already exists in the AWS account."
   type        = bool
   default     = true
+}
+
+variable "secret_recovery_window_in_days" {
+  description = "Secrets Manager recovery window used when Terraform destroys runtime secrets. Use 0 for immediate deletion in this lab project."
+  type        = number
+  default     = 0
 }
 
 variable "tags" {
