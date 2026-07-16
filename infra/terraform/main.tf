@@ -464,6 +464,16 @@ data "aws_iam_policy_document" "github_actions_ecr" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.runtime_config.arn]
   }
+
+  statement {
+    actions = [
+      "ecs:DescribeServices",
+      "ecs:UpdateService"
+    ]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:service/${aws_ecs_cluster.api.name}/${aws_ecs_service.api.name}"
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions_ecr" {
