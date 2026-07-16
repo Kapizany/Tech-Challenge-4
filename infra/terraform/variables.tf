@@ -138,6 +138,16 @@ variable "create_github_oidc_provider" {
   default     = true
 }
 
+variable "github_oidc_thumbprints" {
+  description = "SHA1 thumbprints trusted for token.actions.githubusercontent.com."
+  type        = list(string)
+  default = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "2d74d6dfd96eea55ad7baafa0d3c6552b2dadc37",
+    "ab9d0263244dd0326eb67015705a667e79cfe998"
+  ]
+}
+
 variable "secret_recovery_window_in_days" {
   description = "Secrets Manager recovery window used when Terraform destroys runtime secrets. Use 0 for immediate deletion in this lab project."
   type        = number
