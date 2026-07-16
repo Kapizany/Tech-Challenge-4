@@ -15,7 +15,12 @@ configure_tensorflow_runtime()
 
 from tensorflow import keras
 
-from stock_forecast.artifacts import LSTM_BUNDLE_PATH, LSTM_MODEL_PATH, update_model_metrics
+from stock_forecast.artifacts import (
+    LSTM_BUNDLE_PATH,
+    LSTM_MODEL_PATH,
+    should_replace_model,
+    update_model_metrics,
+)
 from stock_forecast.config import DEFAULT_CSV_PATH, ensure_project_dirs
 from stock_forecast.data import load_price_csv, temporal_train_validation_test_split
 from stock_forecast.features import LSTM_FEATURE_COLUMNS, make_lstm_sequences
@@ -183,21 +188,6 @@ def main() -> None:
         -1
     )
 
-    model.save(LSTM_MODEL_PATH)
-    import joblib
-
-    joblib.dump(
-        {
-            "feature_scaler": arrays["feature_scaler"],
-            "target_scaler": arrays["target_scaler"],
-            "feature_columns": LSTM_FEATURE_COLUMNS,
-            "window_size": best["window_size"],
-            "best_params": best,
-            "model_path": str(LSTM_MODEL_PATH),
-        },
-        LSTM_BUNDLE_PATH,
-    )
-
     payload = {
         "best_params": best,
         "validation_metrics": regression_metrics(validation_true, validation_pred),
@@ -208,7 +198,27 @@ def main() -> None:
             "bundle": str(LSTM_BUNDLE_PATH),
         },
     }
-    update_model_metrics("lstm", payload)
+    should_save, reason = should_replace_model("lstm", payload)
+    if should_save:
+        model.save(LSTM_MODEL_PATH)
+        import joblib
+
+        joblib.dump(
+            {
+                "feature_scaler": arrays["feature_scaler"],
+                "target_scaler": arrays["target_scaler"],
+                "feature_columns": LSTM_FEATURE_COLUMNS,
+                "window_size": best["window_size"],
+                "best_params": best,
+                "model_path": str(LSTM_MODEL_PATH),
+            },
+            LSTM_BUNDLE_PATH,
+        )
+        update_model_metrics("lstm", payload)
+        payload["save_status"] = "saved"
+    else:
+        payload["save_status"] = "skipped"
+    payload["save_reason"] = reason
     print(payload)
 
 

@@ -16,12 +16,14 @@ from stock_forecast.artifacts import (
     resolve_model_name,
 )
 from stock_forecast.data import load_price_csv, normalize_price_frame
+from stock_forecast.storage import ensure_local_file
 
 
 def predict_sequence_model_from_frame(df, bundle_path: Path) -> float:
     df = normalize_price_frame(df)
     bundle = load_joblib(bundle_path)
-    model = keras.models.load_model(bundle["model_path"])
+    model_path = ensure_local_file(Path(bundle["model_path"]))
+    model = keras.models.load_model(model_path)
     window_size = bundle["window_size"]
     feature_columns = bundle["feature_columns"]
 

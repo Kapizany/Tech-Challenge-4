@@ -15,9 +15,11 @@ from stock_forecast.artifacts import (
     RNN_BUNDLE_PATH,
     RNN_MODEL_PATH,
     SUPPORTED_MODEL_NAMES,
+    available_models_from_artifacts,
 )
 from stock_forecast.config import DEFAULT_CSV_PATH, METRICS_PATH, REPORTS_DIR
 from stock_forecast.data import load_price_csv
+from stock_forecast.storage import ensure_local_file
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +84,7 @@ def run_command(name: str, command: list[str]) -> StepResult:
 
 
 def read_json(path: Path) -> dict:
+    ensure_local_file(path, required=False)
     if not path.exists():
         raise FileNotFoundError(f"Required JSON artifact not found: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
@@ -97,18 +100,33 @@ def validate_dataset(csv_path: Path) -> StepResult:
 
 
 def validate_model_artifacts() -> StepResult:
-    required_paths = [
+    model_paths = [
         RNN_MODEL_PATH,
         RNN_BUNDLE_PATH,
         LSTM_MODEL_PATH,
         LSTM_BUNDLE_PATH,
+    ]
+    report_paths = [
         METRICS_PATH,
         BEST_MODEL_PATH,
         COMPARISON_PATH,
     ]
-    missing = [str(path) for path in required_paths if not path.exists()]
-    if missing:
-        raise FileNotFoundError(f"Missing expected artifacts: {missing}")
+    required_paths = [*model_paths, *report_paths]
+    for path in required_paths:
+        ensure_local_file(path, required=False)
+    missing_models = [str(path) for path in model_paths if not path.exists()]
+    missing_reports = [str(path) for path in report_paths if not path.exists()]
+    if missing_models:
+        raise FileNotFoundError(f"Missing expected model artifacts: {missing_models}")
+    if missing_reports:
+        available_models = available_models_from_artifacts()
+        detail = (
+            f"models_available={available_models}, reports_missing={missing_reports}. "
+            "Direct inference with model='lstm' or model='rnn' can work, but metrics/best "
+            "cannot be validated until reports are restored or training runs again."
+        )
+        print(f"Artifacts OK with missing reports: {detail}")
+        return StepResult(name="validate_artifacts", status="degraded", detail=detail)
 
     metrics = read_json(METRICS_PATH)
     comparison = read_json(COMPARISON_PATH)

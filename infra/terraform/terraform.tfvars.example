@@ -1,0 +1,22 @@
+aws_region   = "us-east-1"
+project_name = "stock-forecast-api"
+environment  = "prod"
+
+github_owner = "Kapizany"
+github_repo  = "Tech-Challenge-4"
+
+data_bucket_name   = "techchallenge"
+models_bucket_name = "techchallenge"
+
+data_s3_prefix   = "data"
+models_s3_prefix = "ml-data"
+
+ecr_repository_name = "techchallenge/stock-forecast-api"
+image_tag           = "latest"
+
+desired_count = 1
+
+allowed_http_cidr_blocks = ["0.0.0.0/0"]
+
+# Set to false if your AWS account already has this OIDC provider.
+create_github_oidc_provider = true

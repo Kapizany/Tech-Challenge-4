@@ -21,6 +21,7 @@ from stock_forecast.artifacts import (
     LSTM_MODEL_PATH,
     RNN_BUNDLE_PATH,
     RNN_MODEL_PATH,
+    should_replace_model,
     update_model_metrics,
 )
 from stock_forecast.config import DEFAULT_CSV_PATH, ensure_project_dirs
@@ -175,6 +176,17 @@ def train_architecture(
 
 
 def save_family_winner(model: keras.Model, bundle: dict, model_type: str) -> dict[str, str]:
+    artifact_paths = artifact_paths_for_model_type(model_type)
+    model_path = Path(artifact_paths["model"])
+    bundle_path = Path(artifact_paths["bundle"])
+
+    model.save(model_path)
+    bundle = {**bundle, "model_path": str(model_path)}
+    joblib.dump(bundle, bundle_path)
+    return artifact_paths
+
+
+def artifact_paths_for_model_type(model_type: str) -> dict[str, str]:
     if model_type == "rnn":
         model_path = RNN_MODEL_PATH
         bundle_path = RNN_BUNDLE_PATH
@@ -183,10 +195,6 @@ def save_family_winner(model: keras.Model, bundle: dict, model_type: str) -> dic
         bundle_path = LSTM_BUNDLE_PATH
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
-
-    model.save(model_path)
-    bundle = {**bundle, "model_path": str(model_path)}
-    joblib.dump(bundle, bundle_path)
     return {"model": str(model_path), "bundle": str(bundle_path)}
 
 
@@ -210,7 +218,7 @@ def main() -> None:
             best_by_family[model_type] = {"model": model, "bundle": bundle, "result": result}
 
     for model_type, winner in best_by_family.items():
-        artifact_paths = save_family_winner(winner["model"], winner["bundle"], model_type)
+        artifact_paths = artifact_paths_for_model_type(model_type)
         family_results = [
             result
             for result in all_results
@@ -223,7 +231,15 @@ def main() -> None:
             "architectures_tested": family_results,
             "artifact_paths": artifact_paths,
         }
-        update_model_metrics(model_type, payload)
+        should_save, reason = should_replace_model(model_type, payload)
+        if should_save:
+            save_family_winner(winner["model"], winner["bundle"], model_type)
+            update_model_metrics(model_type, payload)
+            payload["save_status"] = "saved"
+        else:
+            payload["save_status"] = "skipped"
+        payload["save_reason"] = reason
+        print({model_type: {"save_status": payload["save_status"], "save_reason": reason}})
 
     write_json(
         Path("reports/recurrent_architecture_comparison.json"),

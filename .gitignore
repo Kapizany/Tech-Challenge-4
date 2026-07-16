@@ -11,3 +11,5 @@ models/*
 reports/*.json
 !models/.gitkeep
 !reports/.gitkeep
+terraform.tfvars
+.terraform/

@@ -53,9 +53,11 @@ Esse comando:
 - treina as 3 arquiteturas RNN e as 3 arquiteturas LSTM;
 - escolhe a melhor RNN por RMSE no teste;
 - escolhe a melhor LSTM por RMSE no teste;
-- salva `models/rnn.keras` e `models/lstm.keras`;
+- salva `models/rnn.keras` e `models/lstm.keras` somente quando o novo RMSE de teste for melhor que o modelo já salvo;
 - salva scalers/metadados em `models/rnn_bundle.joblib` e `models/lstm_bundle.joblib`;
 - atualiza `reports/metrics.json`, `reports/best_model.json` e `reports/recurrent_architecture_comparison.json`.
+
+Se já existir um modelo salvo, o treinamento novo é comparado contra o RMSE registrado em `reports/metrics.json`. O artefato anterior é preservado quando o novo treino não melhora a métrica de teste. Se algum artefato esperado estiver faltando, o script salva o novo modelo mesmo que a métrica não tenha melhorado, para recompor o pacote de inferência.
 
 Treinar somente algumas arquiteturas específicas:
 
@@ -283,6 +285,164 @@ curl http://localhost:8000/health
 
 Os arquivos `models/lstm.keras`, `models/lstm_bundle.joblib`, `models/rnn.keras`, `models/rnn_bundle.joblib`, `reports/best_model.json` e `reports/metrics.json` são copiados para a imagem. Por isso, treine os modelos antes de construir a imagem final, ou reconstrua a imagem depois de retreinar.
 
+## ECS Fargate
+
+Existe uma task definition base em `infra/ecs-task-definition.json` para rodar a API no ECS Fargate.
+
+Antes de registrar, ajuste:
+
+- `image`: repositório/tag real no ECR;
+- `DATA_S3_BUCKET`: bucket dos dados;
+- `MODELS_S3_BUCKET`: bucket dos modelos e relatórios;
+- `DATA_S3_PREFIX` e `MODELS_S3_PREFIX`, se os objetos estiverem dentro de prefixos;
+- `taskRoleArn`, se a role atual não tiver permissão `s3:GetObject` nos buckets configurados.
+
+Registrar a task:
+
+```bash
+aws ecs register-task-definition \
+  --cli-input-json file://infra/ecs-task-definition.json \
+  --region us-east-1
+```
+
+A task expõe a API na porta `8000` e usa health check em `/health`.
+
+### Terraform
+
+Também existe uma stack Terraform em `infra/terraform/` para criar a infraestrutura AWS principal:
+
+- buckets S3 de dados e modelos;
+- repositório ECR;
+- cluster ECS Fargate;
+- task definition e service;
+- Application Load Balancer;
+- VPC, subnets públicas, Internet Gateway e security groups;
+- CloudWatch Logs;
+- roles IAM para ECS;
+- role IAM para GitHub Actions publicar imagem no ECR;
+- segredo no AWS Secrets Manager com a configuração de buckets/prefixos.
+
+Como usar:
+
+```bash
+cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
+```
+
+Edite `infra/terraform/terraform.tfvars` e depois rode:
+
+```bash
+cd infra/terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+Depois do `apply`, copie o output `github_actions_role_arn` e cadastre no GitHub como secret:
+
+```text
+AWS_ROLE_TO_ASSUME=<github_actions_role_arn>
+```
+
+Importante: Terraform não adota automaticamente recursos que já existem fora do state. Se um bucket, role, repositório ECR ou provider OIDC já existir com o mesmo nome, use `terraform import`, mude o nome via variável ou ajuste `create_github_oidc_provider = false` quando o OIDC provider do GitHub já existir na conta.
+
+## GitHub Actions
+
+O workflow `.github/workflows/build-and-push-ecr.yml` publica a imagem da API no Amazon ECR sempre que houver push na branch `main`. Ele também pode ser executado manualmente pela aba **Actions** do GitHub.
+
+Imagem publicada:
+
+```text
+447798043017.dkr.ecr.us-east-1.amazonaws.com/techchallenge/stock-forecast-api:latest
+447798043017.dkr.ecr.us-east-1.amazonaws.com/techchallenge/stock-forecast-api:<commit-sha>
+```
+
+Antes de usar, crie no GitHub o secret:
+
+```text
+AWS_ROLE_TO_ASSUME
+```
+
+Esse secret deve apontar para uma IAM Role que o GitHub Actions possa assumir via OIDC. A role precisa permitir:
+
+- `ecr:GetAuthorizationToken`;
+- `ecr:BatchCheckLayerAvailability`;
+- `ecr:CompleteLayerUpload`;
+- `ecr:CreateRepository`;
+- `ecr:DescribeRepositories`;
+- `ecr:InitiateLayerUpload`;
+- `ecr:PutImage`;
+- `ecr:UploadLayerPart`.
+
+O workflow cria o repositório `techchallenge/stock-forecast-api` caso ele ainda não exista, faz build com o `Dockerfile` do projeto e publica as tags `latest` e SHA do commit.
+
+## Recuperação de Artefatos no S3
+
+Antes de usar dados, modelos ou relatórios, o projeto verifica se os arquivos existem localmente. Se algum arquivo estiver ausente, ele tenta baixar do S3 usando variáveis de ambiente.
+
+Variáveis suportadas:
+
+| Variável | Uso |
+| --- | --- |
+| `DATA_S3_BUCKET` | Bucket para arquivos em `data/`, como `data/raw/PETR4.SA.csv`. |
+| `MODELS_S3_BUCKET` | Bucket para arquivos em `models/` e `reports/`. |
+| `DATA_S3_PREFIX` | Prefixo opcional para dados. |
+| `MODELS_S3_PREFIX` | Prefixo opcional para modelos e relatórios. |
+| `AWS_ACCESS_KEY_ID` | Credencial AWS, se necessário no ambiente. |
+| `AWS_SECRET_ACCESS_KEY` | Credencial AWS, se necessário no ambiente. |
+| `AWS_SESSION_TOKEN` | Token temporário AWS, se necessário. |
+| `AWS_DEFAULT_REGION` | Região AWS usada pelo `boto3`. |
+
+Por padrão, a chave no S3 segue o caminho relativo do projeto. Exemplos sem prefixo:
+
+```text
+data/raw/PETR4.SA.csv
+models/lstm.keras
+models/lstm_bundle.joblib
+models/rnn.keras
+models/rnn_bundle.joblib
+reports/best_model.json
+reports/metrics.json
+reports/recurrent_architecture_comparison.json
+```
+
+Com `MODELS_S3_PREFIX=tech-challenge`, por exemplo, o modelo LSTM será buscado em:
+
+```text
+s3://$MODELS_S3_BUCKET/tech-challenge/models/lstm.keras
+```
+
+Exemplo local:
+
+```bash
+export DATA_S3_BUCKET=meu-bucket-dados
+export MODELS_S3_BUCKET=meu-bucket-modelos
+export AWS_DEFAULT_REGION=us-east-1
+
+python3 scripts/orchestrate.py --skip-train
+```
+
+Exemplo com Docker Compose:
+
+```bash
+DATA_S3_BUCKET=meu-bucket-dados \
+MODELS_S3_BUCKET=meu-bucket-modelos \
+AWS_DEFAULT_REGION=us-east-1 \
+docker compose up --build
+```
+
+Se os modelos existirem, mas os relatórios em `reports/` não existirem, o projeto entra em modo degradado:
+
+- chamadas explícitas como `POST /predict?model=lstm` e `POST /predict?model=rnn` continuam funcionando se os arquivos `.keras` e `_bundle.joblib` existirem;
+- `POST /predict?model=best` usa o `reports/best_model.json` quando ele existe;
+- se `best_model.json` estiver ausente, `model=best` usa um fallback determinístico: primeiro LSTM, depois RNN, desde que os artefatos estejam completos;
+- o orquestrador avisa que os modelos existem, mas que métricas e melhor modelo não podem ser validados até restaurar os reports ou rodar o treinamento novamente.
+
+Para recriar os relatórios com métricas reais, rode novamente:
+
+```bash
+python3 scripts/orchestrate.py
+```
+
 ## Artefatos
 
 - `data/raw/PETR4.SA.csv`: dados coletados.
@@ -299,15 +459,19 @@ Os arquivos `models/lstm.keras`, `models/lstm_bundle.joblib`, `models/rnn.keras`
 
 Nos testes atuais, o melhor modelo foi a **LSTM**.
 
-| Modelo | Melhor arquitetura | Janela | MAE teste | RMSE teste | MAPE teste |
-| --- | --- | ---: | ---: | ---: | ---: |
-| LSTM | `lstm_simple_30` | 30 pregões | 0.5492 | 0.7322 | 1.4570% |
-| RNN | `rnn_wide_60` | 60 pregões | 0.7777 | 0.9196 | 2.0312% |
+Estatísticas atuais salvas em `reports/metrics.json`:
+
+| Modelo | Melhor arquitetura | Janela | MAE validação | RMSE validação | MAPE validação | MAE teste | RMSE teste | MAPE teste |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LSTM | `lstm_simple_30` | 30 pregões | 0.6155 | 0.8537 | 2.2899% | 0.5492 | 0.7322 | 1.4570% |
+| RNN | `rnn_wide_60` | 60 pregões | 0.5953 | 0.7583 | 2.3083% | 0.7777 | 0.9196 | 2.0312% |
 
 A LSTM venceu nas três métricas principais: MAE, RMSE e MAPE. Isso indica que, no conjunto de teste temporal, ela errou menos em média, teve menor penalização para erros maiores e apresentou menor erro percentual.
 
 Uma explicação provável é que a LSTM lida melhor com dependências temporais do que uma RNN clássica. Suas portas internas controlam o que deve ser esquecido, mantido e atualizado na memória, reduzindo o problema de desaparecimento do gradiente e ajudando a capturar padrões úteis sem carregar ruído demais.
 
 Também é relevante que a melhor LSTM foi a arquitetura mais simples, com janela de 30 pregões e 32 unidades. Isso sugere que, para esta base, uma janela mais curta generalizou melhor do que arquiteturas maiores. A melhor RNN precisou de uma janela de 60 pregões e 96 unidades, mas ainda ficou atrás da LSTM, o que reforça a vantagem da arquitetura LSTM para essa série.
+
+Observação: os scripts de treinamento preservam o modelo anterior quando um novo treino não melhora o RMSE de teste salvo. Portanto, se `scripts/train_lstm.py` for executado novamente e o resultado novo for pior ou igual ao LSTM já salvo, `models/lstm.keras`, `models/lstm_bundle.joblib` e `reports/metrics.json` continuam apontando para o melhor LSTM conhecido.
 
 Como preços de ações são ruidosos e sujeitos a eventos externos, esses resultados devem ser interpretados como desempenho experimental no recorte histórico usado, não como garantia de acerto futuro. O ideal é reexecutar o treinamento periodicamente e comparar novamente as métricas em dados mais recentes.

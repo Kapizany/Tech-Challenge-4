@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from stock_forecast.storage import ensure_local_file
+
 
 def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     y_true = np.asarray(y_true, dtype=float).reshape(-1)
@@ -22,6 +24,8 @@ def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, floa
 
 
 def read_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        ensure_local_file(path, required=False)
     if not path.exists():
         return default
     return json.loads(path.read_text(encoding="utf-8"))

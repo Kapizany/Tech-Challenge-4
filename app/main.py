@@ -14,7 +14,11 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from stock_forecast.artifacts import BEST_MODEL_PATH, METRICS_PATH
+from stock_forecast.artifacts import (
+    BEST_MODEL_PATH,
+    METRICS_PATH,
+    available_models_from_artifacts,
+)
 from stock_forecast.config import DEFAULT_SYMBOL
 from stock_forecast.inference import predict_next_close_from_frame
 from stock_forecast.metrics import read_json
@@ -55,6 +59,7 @@ def health() -> dict:
         "status": "ok",
         "symbol": DEFAULT_SYMBOL,
         "best_model": read_json(BEST_MODEL_PATH, default={}).get("best_model"),
+        "available_models": available_models_from_artifacts(),
         "metrics_available": METRICS_PATH.exists(),
     }
 

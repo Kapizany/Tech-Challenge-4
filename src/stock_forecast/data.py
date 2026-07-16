@@ -5,9 +5,11 @@ from pathlib import Path
 import pandas as pd
 
 from stock_forecast.config import OHLCV_COLUMNS, SplitRatios
+from stock_forecast.storage import ensure_local_file
 
 
 def load_price_csv(path: Path) -> pd.DataFrame:
+    ensure_local_file(path)
     df = pd.read_csv(path, parse_dates=["Date"])
     return normalize_price_frame(df)
 

@@ -1,0 +1,102 @@
+{
+  "family": "stock-forecast-api-task",
+  "taskRoleArn": "arn:aws:iam::447798043017:role/ecsTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::447798043017:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "3072",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "ephemeralStorage": {
+    "sizeInGiB": 21
+  },
+  "containerDefinitions": [
+    {
+      "name": "stock-forecast-api-container",
+      "image": "447798043017.dkr.ecr.us-east-1.amazonaws.com/techchallenge/stock-forecast-api:latest",
+      "cpu": 0,
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp",
+          "name": "stock-forecast-api-container-8000-tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "environment": [
+        {
+          "name": "AWS_DEFAULT_REGION",
+          "value": "us-east-1"
+        },
+        {
+          "name": "PORT",
+          "value": "8000"
+        },
+        {
+          "name": "PYTHONPATH",
+          "value": "/app/src"
+        },
+        {
+          "name": "DATA_S3_BUCKET",
+          "value": "CHANGE_ME_DATA_BUCKET"
+        },
+        {
+          "name": "DATA_S3_PREFIX",
+          "value": ""
+        },
+        {
+          "name": "MODELS_S3_BUCKET",
+          "value": "CHANGE_ME_MODELS_BUCKET"
+        },
+        {
+          "name": "MODELS_S3_PREFIX",
+          "value": ""
+        }
+      ],
+      "environmentFiles": [],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "ulimits": [],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/stock-forecast-api-task",
+          "awslogs-create-group": "true",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        },
+        "secretOptions": []
+      },
+      "systemControls": []
+    }
+  ],
+  "volumes": [],
+  "placementConstraints": [],
+  "tags": [
+    {
+      "key": "project",
+      "value": "tech-challenge-4"
+    },
+    {
+      "key": "service",
+      "value": "stock-forecast-api"
+    }
+  ]
+}
