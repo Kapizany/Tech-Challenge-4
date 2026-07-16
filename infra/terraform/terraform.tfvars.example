@@ -7,7 +7,7 @@ github_repo  = "CHANGE_ME_GITHUB_REPO"
 
 artifact_bucket_name = "CHANGE_ME_UNIQUE_ARTIFACT_BUCKET"
 
-data_s3_prefix   = "data"
+data_s3_prefix   = ""
 models_s3_prefix = "ml-data"
 
 ecr_repository_name = "techchallenge/stock-forecast-api"

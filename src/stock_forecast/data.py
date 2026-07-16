@@ -4,8 +4,20 @@ from pathlib import Path
 
 import pandas as pd
 
-from stock_forecast.config import OHLCV_COLUMNS, SplitRatios
+from stock_forecast.config import OHLCV_COLUMNS, RAW_DATA_DIR, SplitRatios
 from stock_forecast.storage import ensure_local_file
+
+
+def normalize_symbol(symbol: str) -> str:
+    normalized = symbol.strip().upper()
+    if not normalized:
+        raise ValueError("Symbol cannot be empty.")
+    return normalized
+
+
+def symbol_price_csv_path(symbol: str) -> Path:
+    normalized = normalize_symbol(symbol)
+    return RAW_DATA_DIR / normalized / f"{normalized}.csv"
 
 
 def load_price_csv(path: Path) -> pd.DataFrame:

@@ -152,8 +152,23 @@ uvicorn app.main:app --reload
 Endpoints:
 
 - `GET /health`: status e modelo vencedor.
+- `POST /collect`: coleta OHLCV por ticker/período, salva CSV local e opcionalmente envia ao S3.
+- `GET /models`: lista modelos disponíveis e caminhos esperados dos artefatos.
+- `GET /data/tickers`: lista tickers com dados locais ou no S3.
+- `GET /data/{symbol}`: lista arquivos de dados disponíveis para um ticker.
 - `POST /predict?model=best`: previsão do próximo fechamento.
 - `GET /metrics`: métricas Prometheus.
+
+A API registra tracing de requisições em JSON no stdout, que no ECS é enviado ao CloudWatch Logs. Por padrão, `/health` e `/metrics` são ignorados para reduzir ruído. Cada chamada inclui `request_id`, método, path, query params, status code, duração em milissegundos, IP do client e, quando habilitado, body de request/response truncado.
+
+Variáveis de tracing:
+
+| Variável | Padrão | Uso |
+| --- | --- | --- |
+| `TRACE_REQUESTS` | `true` | Liga/desliga o tracing HTTP. |
+| `TRACE_LOG_BODIES` | `true` | Liga/desliga logging de bodies. |
+| `TRACE_MAX_BODY_CHARS` | `4000` | Limite de caracteres para request/response body. |
+| `TRACE_EXCLUDED_PATHS` | `/health,/metrics` | Paths ignorados pelo tracing, separados por vírgula. |
 
 Exemplo abreviado de payload para `/predict`:
 
@@ -171,6 +186,36 @@ Exemplo abreviado de payload para `/predict`:
     }
   ]
 }
+```
+
+Exemplo de coleta:
+
+```bash
+curl -X POST "http://localhost:8000/collect" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "PETR4.SA",
+    "start": "2024-01-01",
+    "end": "2024-07-20",
+    "upload_s3": true
+  }'
+```
+
+Com `DATA_S3_BUCKET=capizani-techchallenge-4` e `DATA_S3_PREFIX=""`, a coleta salva dados agrupados por ticker em:
+
+```text
+s3://capizani-techchallenge-4/data/raw/PETR4.SA/PETR4.SA.csv
+```
+
+Os modelos existentes continuam no layout atual:
+
+```text
+s3://capizani-techchallenge-4/ml-data/models/lstm.keras
+s3://capizani-techchallenge-4/ml-data/models/lstm_bundle.joblib
+s3://capizani-techchallenge-4/ml-data/models/rnn.keras
+s3://capizani-techchallenge-4/ml-data/models/rnn_bundle.joblib
+s3://capizani-techchallenge-4/ml-data/reports/best_model.json
+s3://capizani-techchallenge-4/ml-data/reports/metrics.json
 ```
 
 O payload real precisa repetir esse formato para histórico suficiente: pelo menos a janela treinada para a RNN/LSTM escolhida.
@@ -295,7 +340,7 @@ Antes de registrar, ajuste:
 - `DATA_S3_BUCKET`: bucket dos dados;
 - `MODELS_S3_BUCKET`: bucket dos modelos e relatórios, podendo ser o mesmo de `DATA_S3_BUCKET`;
 - `DATA_S3_PREFIX` e `MODELS_S3_PREFIX`, se os objetos estiverem dentro de prefixos;
-- `taskRoleArn`, se a role atual não tiver permissão `s3:GetObject` no bucket configurado.
+- `taskRoleArn`, se a role atual não tiver permissão `s3:GetObject` e `s3:PutObject` no bucket configurado.
 
 Registrar a task:
 
@@ -423,7 +468,7 @@ Exemplo local com bucket único:
 ```bash
 export DATA_S3_BUCKET=meu-bucket-artifacts
 export MODELS_S3_BUCKET=meu-bucket-artifacts
-export DATA_S3_PREFIX=data
+export DATA_S3_PREFIX=
 export MODELS_S3_PREFIX=ml-data
 export AWS_DEFAULT_REGION=us-east-1
 
@@ -435,7 +480,7 @@ Exemplo com Docker Compose:
 ```bash
 DATA_S3_BUCKET=meu-bucket-artifacts \
 MODELS_S3_BUCKET=meu-bucket-artifacts \
-DATA_S3_PREFIX=data \
+DATA_S3_PREFIX= \
 MODELS_S3_PREFIX=ml-data \
 AWS_DEFAULT_REGION=us-east-1 \
 docker compose up --build

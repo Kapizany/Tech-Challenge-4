@@ -251,14 +251,6 @@ data "aws_iam_policy_document" "ecs_execution_secrets" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.runtime_config.arn]
   }
-
-  statement {
-    actions = [
-      "ecs:DescribeServices",
-      "ecs:UpdateService"
-    ]
-    resources = ["*"]
-  }
 }
 
 resource "aws_iam_role_policy" "ecs_execution_secrets" {
@@ -280,7 +272,10 @@ data "aws_iam_policy_document" "ecs_task_s3" {
   }
 
   statement {
-    actions   = ["s3:GetObject"]
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject"
+    ]
     resources = ["${aws_s3_bucket.artifacts.arn}/*"]
   }
 }
@@ -322,7 +317,11 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "AWS_DEFAULT_REGION", value = var.aws_region },
         { name = "PORT", value = tostring(var.container_port) },
-        { name = "PYTHONPATH", value = "/app/src" }
+        { name = "PYTHONPATH", value = "/app/src" },
+        { name = "TRACE_REQUESTS", value = "true" },
+        { name = "TRACE_LOG_BODIES", value = "true" },
+        { name = "TRACE_MAX_BODY_CHARS", value = "4000" },
+        { name = "TRACE_EXCLUDED_PATHS", value = "/health,/metrics" }
       ]
       secrets = [
         {

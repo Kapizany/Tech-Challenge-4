@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from stock_forecast.config import DATA_DIR, MODELS_DIR, PROJECT_ROOT, REPORTS_DIR
 
@@ -37,12 +38,25 @@ def _bucket_and_prefix_for_path(path: Path) -> tuple[str | None, str]:
     return None, ""
 
 
-def _s3_key_for_path(path: Path, prefix: str) -> str:
+def configured_data_s3_location() -> tuple[str | None, str]:
+    return _first_env_value(DATA_BUCKET_ENV_NAMES), os.getenv("DATA_S3_PREFIX", "")
+
+
+def configured_models_s3_location() -> tuple[str | None, str]:
+    return _first_env_value(MODELS_BUCKET_ENV_NAMES), os.getenv("MODELS_S3_PREFIX", "")
+
+
+def s3_key_for_path(path: Path, prefix: str) -> str:
     relative = path.resolve().relative_to(PROJECT_ROOT.resolve()).as_posix()
     normalized_prefix = prefix.strip("/")
     if normalized_prefix:
         return f"{normalized_prefix}/{relative}"
     return relative
+
+
+def s3_location_for_path(path: Path) -> tuple[str | None, str]:
+    bucket, prefix = _bucket_and_prefix_for_path(path)
+    return bucket, s3_key_for_path(path, prefix)
 
 
 def ensure_local_file(path: Path, required: bool = True) -> Path:
@@ -59,22 +73,25 @@ def ensure_local_file(path: Path, required: bool = True) -> Path:
             )
         return path
 
-    key = _s3_key_for_path(path, prefix)
+    key = s3_key_for_path(path, prefix)
     download_from_s3(bucket=bucket, key=key, destination=path)
     return path
 
 
-def download_from_s3(bucket: str, key: str, destination: Path) -> Path:
+def _boto3_client(service_name: str) -> Any:
     try:
         import boto3
     except ImportError as exc:
         raise RuntimeError(
-            "boto3 is required to download missing artifacts from S3. "
-            "Install project dependencies with `pip install -e .`."
+            "boto3 is required for S3 operations. Install project dependencies with "
+            "`pip install -e .`."
         ) from exc
+    return boto3.client(service_name)
 
+
+def download_from_s3(bucket: str, key: str, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    client = boto3.client("s3")
+    client = _boto3_client("s3")
     try:
         client.download_file(bucket, key, str(destination))
     except Exception as exc:
@@ -82,3 +99,29 @@ def download_from_s3(bucket: str, key: str, destination: Path) -> Path:
             f"Failed to download s3://{bucket}/{key} to {destination}: {exc}"
         ) from exc
     return destination
+
+
+def upload_to_s3(source: Path, bucket: str, key: str) -> str:
+    client = _boto3_client("s3")
+    try:
+        client.upload_file(str(source), bucket, key)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to upload {source} to s3://{bucket}/{key}: {exc}") from exc
+    return key
+
+
+def upload_path_to_configured_s3(source: Path) -> tuple[str | None, str | None]:
+    bucket, key = s3_location_for_path(source)
+    if not bucket:
+        return None, None
+    upload_to_s3(source=source, bucket=bucket, key=key)
+    return bucket, key
+
+
+def list_s3_keys(bucket: str, prefix: str = "") -> list[str]:
+    client = _boto3_client("s3")
+    paginator = client.get_paginator("list_objects_v2")
+    keys: list[str] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        keys.extend(item["Key"] for item in page.get("Contents", []))
+    return keys
