@@ -34,6 +34,26 @@ jobs:
           echo "ref=${{ github.ref }}"
           echo "event=${{ github.event_name }}"
 
+      - name: Validate AWS role secret
+        env:
+          ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          EXPECTED_ROLE_ARN: arn:aws:iam::447798043017:role/stock-forecast-api-prod-github-actions-role
+        run: |
+          if [ -z "$ROLE_TO_ASSUME" ]; then
+            echo "::error::Repository secret AWS_ROLE_TO_ASSUME is empty or missing."
+            exit 1
+          fi
+
+          echo "::add-mask::$ROLE_TO_ASSUME"
+          echo "role_account=$(cut -d: -f5 <<< "$ROLE_TO_ASSUME")"
+          echo "role_name=${ROLE_TO_ASSUME##*/}"
+
+          if [ "$ROLE_TO_ASSUME" != "$EXPECTED_ROLE_ARN" ]; then
+            echo "::error::AWS_ROLE_TO_ASSUME does not match the Terraform GitHub Actions role ARN."
+            echo "expected_role_name=${EXPECTED_ROLE_ARN##*/}"
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
