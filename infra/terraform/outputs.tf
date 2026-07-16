@@ -45,7 +45,7 @@ output "github_actions_role_arn" {
 
 output "github_actions_oidc_subject" {
   description = "GitHub OIDC subject allowed to assume the GitHub Actions role."
-  value       = "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/${var.github_branch}"
+  value       = "repo:${var.github_owner}/${var.github_repo}:*"
 }
 
 output "runtime_config_secret_arn" {
