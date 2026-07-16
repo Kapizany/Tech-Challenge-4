@@ -369,6 +369,7 @@ Esse secret deve apontar para uma IAM Role que o GitHub Actions possa assumir vi
 
 - `ecr:GetAuthorizationToken`;
 - `ecr:BatchCheckLayerAvailability`;
+- `ecr:BatchGetImage`;
 - `ecr:CompleteLayerUpload`;
 - `ecr:CreateRepository`;
 - `ecr:DescribeRepositories`;
