@@ -392,6 +392,29 @@ Depois do `apply`, copie o output `github_actions_role_arn` e cadastre no GitHub
 AWS_ROLE_TO_ASSUME=<github_actions_role_arn>
 ```
 
+Scripts auxiliares:
+
+```bash
+./scripts/sync_artifacts_to_s3.sh
+```
+
+Sincroniza `data/`, `models/` e `reports/` para o bucket configurado em `infra/terraform/terraform.tfvars`. Use depois que o bucket existir. No primeiro setup, isso normalmente significa depois de `terraform apply`; em ambientes já criados, pode rodar após `terraform init`.
+
+```bash
+./scripts/cleanup_aws_before_destroy.sh
+```
+
+Esvazia o bucket S3 versionado e remove imagens do repositório ECR antes de `terraform destroy`:
+
+```bash
+./scripts/cleanup_aws_before_destroy.sh
+cd infra/terraform
+terraform destroy
+cd ../..
+./scripts/post_destroy_cleanup.sh
+```
+
+O `post_destroy_cleanup.sh` verifica se bucket, ECR, ECS, secret, log group e roles IAM principais não existem mais, e limpa arquivos locais gerados pelo Terraform como `.terraform/`, `.terraform.lock.hcl`, `terraform.tfstate` e backups.
 
 ## GitHub Actions
 
