@@ -132,6 +132,12 @@ variable "github_branch" {
   default     = "main"
 }
 
+variable "github_oidc_subject_patterns" {
+  description = "Optional explicit GitHub OIDC sub patterns allowed to assume the deploy role. Leave empty to allow classic and immutable subject formats for this repository."
+  type        = list(string)
+  default     = []
+}
+
 variable "create_github_oidc_provider" {
   description = "Create the GitHub Actions OIDC provider. Set false if it already exists in the AWS account."
   type        = bool

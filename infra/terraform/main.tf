@@ -8,6 +8,10 @@ locals {
     var.models_bucket_name,
     ""
   )
+  github_oidc_subject_patterns = length(var.github_oidc_subject_patterns) > 0 ? var.github_oidc_subject_patterns : [
+    "repo:${var.github_owner}/${var.github_repo}:*",
+    "repo:${var.github_owner}@*/${var.github_repo}@*:*"
+  ]
   common_tags = merge(
     {
       Project     = var.project_name
@@ -419,7 +423,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/${var.github_repo}:*"]
+      values   = local.github_oidc_subject_patterns
     }
   }
 }
