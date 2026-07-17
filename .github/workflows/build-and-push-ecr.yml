@@ -23,6 +23,7 @@ jobs:
   build-and-push:
     name: Build and push Docker image
     runs-on: ubuntu-latest
+    if: ${{ vars.DEPLOY_ENABLED == '' || vars.DEPLOY_ENABLED == 'true' }}
 
     steps:
       - name: Checkout

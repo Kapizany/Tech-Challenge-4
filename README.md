@@ -420,6 +420,14 @@ O `post_destroy_cleanup.sh` verifica se bucket, ECR, ECS, secret, log group e ro
 
 O workflow `.github/workflows/build-and-push-ecr.yml` publica a imagem da API no Amazon ECR sempre que houver push na branch `main`. Ele também pode ser executado manualmente pela aba **Actions** do GitHub.
 
+Para ligar/desligar a pipeline, crie uma repository variable em **Settings > Secrets and variables > Actions > Variables**:
+
+```text
+DEPLOY_ENABLED=true
+```
+
+Use `DEPLOY_ENABLED=false` antes de destruir a infra para a Action ser ignorada sem falhar. Se a variável não existir, o workflow assume ligado.
+
 Imagem publicada:
 
 ```text
