@@ -6,7 +6,7 @@ from pathlib import Path
 import yfinance as yf
 
 from stock_forecast.data import normalize_symbol, save_price_csv, symbol_price_csv_path
-from stock_forecast.storage import upload_path_to_configured_s3
+from stock_forecast.storage import s3_location_for_path, s3_object_exists, upload_to_s3
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,8 @@ class CollectionResult:
     local_path: Path
     s3_bucket: str | None = None
     s3_key: str | None = None
+    s3_uploaded: bool = False
+    s3_object_already_exists: bool = False
 
 
 def collect_price_history(
@@ -25,7 +27,7 @@ def collect_price_history(
     start: str,
     end: str,
     output: Path | None = None,
-    upload_s3: bool = False,
+    upload_s3: bool = True,
 ) -> CollectionResult:
     normalized_symbol = normalize_symbol(symbol)
     output_path = output or symbol_price_csv_path(normalized_symbol)
@@ -50,8 +52,15 @@ def collect_price_history(
     saved_path = save_price_csv(df, output_path)
     s3_bucket = None
     s3_key = None
+    s3_uploaded = False
+    s3_object_already_exists = False
     if upload_s3:
-        s3_bucket, s3_key = upload_path_to_configured_s3(saved_path)
+        s3_bucket, s3_key = s3_location_for_path(saved_path)
+        if s3_bucket:
+            s3_object_already_exists = s3_object_exists(s3_bucket, s3_key)
+            if not s3_object_already_exists:
+                upload_to_s3(source=saved_path, bucket=s3_bucket, key=s3_key)
+                s3_uploaded = True
 
     return CollectionResult(
         symbol=normalized_symbol,
@@ -61,4 +70,6 @@ def collect_price_history(
         local_path=saved_path,
         s3_bucket=s3_bucket,
         s3_key=s3_key,
+        s3_uploaded=s3_uploaded,
+        s3_object_already_exists=s3_object_already_exists,
     )

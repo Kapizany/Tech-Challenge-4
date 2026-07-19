@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import logging
 import os
+import shutil
 import sys
 import time
 import uuid
@@ -33,6 +34,8 @@ from stock_forecast.metrics import read_json
 from stock_forecast.storage import (
     configured_data_s3_location,
     configured_models_s3_location,
+    delete_s3_key_versions,
+    delete_s3_prefix_versions,
     list_s3_keys,
     s3_key_for_path,
 )
@@ -84,6 +87,7 @@ class CollectResponse(BaseModel):
     rows: int
     local_path: str
     uploaded_to_s3: bool
+    s3_object_already_exists: bool = False
     s3_bucket: str | None = None
     s3_key: str | None = None
 
@@ -115,6 +119,14 @@ class DataFileInfo(BaseModel):
 class DataByTickerResponse(BaseModel):
     symbol: str
     files: list[DataFileInfo]
+
+
+class DataCleanupResponse(BaseModel):
+    symbol: str
+    deleted_local_paths: list[str]
+    deleted_s3_bucket: str | None = None
+    deleted_s3_prefixes: list[str]
+    deleted_s3_objects: int
 
 
 class TickerListResponse(BaseModel):
@@ -190,6 +202,32 @@ def _data_file_info_from_local(symbol: str, path: Path) -> DataFileInfo:
         start_date=start_date,
         end_date=end_date,
     )
+
+
+def _data_s3_key(prefix: str, suffix: str) -> str:
+    normalized_prefix = prefix.strip("/")
+    suffix = suffix.strip("/")
+    if normalized_prefix:
+        return f"{normalized_prefix}/{suffix}"
+    return suffix
+
+
+def _data_s3_prefixes_for_symbol(symbol: str) -> list[str]:
+    _, prefix = configured_data_s3_location()
+    normalized_symbol = normalize_symbol(symbol)
+    return [
+        _data_s3_key(prefix, f"data/raw/{normalized_symbol}/"),
+        _data_s3_key(prefix, f"data/processed/{normalized_symbol}/"),
+    ]
+
+
+def _legacy_data_s3_keys_for_symbol(symbol: str) -> list[str]:
+    _, prefix = configured_data_s3_location()
+    normalized_symbol = normalize_symbol(symbol)
+    return [
+        _data_s3_key(prefix, f"data/raw/{normalized_symbol}.csv"),
+        _data_s3_key(prefix, f"data/processed/{normalized_symbol}.csv"),
+    ]
 
 
 def _model_s3_keys_for_path(path: Path, symbol: str | None) -> list[str]:
@@ -328,7 +366,8 @@ def collect(payload: CollectRequest) -> CollectResponse:
         end=payload.end,
         rows=result.rows,
         local_path=_relative_path(result.local_path),
-        uploaded_to_s3=bool(result.s3_bucket and result.s3_key),
+        uploaded_to_s3=result.s3_uploaded,
+        s3_object_already_exists=result.s3_object_already_exists,
         s3_bucket=result.s3_bucket,
         s3_key=result.s3_key,
     )
@@ -389,6 +428,48 @@ def list_data_by_ticker(symbol: str) -> DataByTickerResponse:
             )
 
     return DataByTickerResponse(symbol=normalized_symbol, files=files)
+
+
+@app.delete("/data/{symbol}", response_model=DataCleanupResponse)
+def cleanup_data_by_ticker(symbol: str) -> DataCleanupResponse:
+    normalized_symbol = normalize_symbol(symbol)
+    deleted_local_paths: list[str] = []
+
+    local_paths = [
+        RAW_DATA_DIR / normalized_symbol,
+        RAW_DATA_DIR / f"{normalized_symbol}.csv",
+        PROJECT_ROOT / "data" / "processed" / normalized_symbol,
+        PROJECT_ROOT / "data" / "processed" / f"{normalized_symbol}.csv",
+    ]
+    for path in local_paths:
+        if path.is_dir():
+            shutil.rmtree(path)
+            deleted_local_paths.append(_relative_path(path))
+        elif path.exists():
+            path.unlink()
+            deleted_local_paths.append(_relative_path(path))
+
+    bucket, _ = configured_data_s3_location()
+    deleted_s3_objects = 0
+    deleted_s3_prefixes: list[str] = []
+    if bucket:
+        for prefix in _data_s3_prefixes_for_symbol(normalized_symbol):
+            deleted = delete_s3_prefix_versions(bucket=bucket, prefix=prefix)
+            deleted_s3_objects += deleted
+            deleted_s3_prefixes.append(prefix)
+
+        for key in _legacy_data_s3_keys_for_symbol(normalized_symbol):
+            deleted = delete_s3_key_versions(bucket=bucket, key=key)
+            deleted_s3_objects += deleted
+            deleted_s3_prefixes.append(key)
+
+    return DataCleanupResponse(
+        symbol=normalized_symbol,
+        deleted_local_paths=deleted_local_paths,
+        deleted_s3_bucket=bucket,
+        deleted_s3_prefixes=deleted_s3_prefixes,
+        deleted_s3_objects=deleted_s3_objects,
+    )
 
 
 @app.post("/predict", response_model=PredictionResponse)

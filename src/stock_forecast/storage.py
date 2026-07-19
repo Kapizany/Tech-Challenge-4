@@ -110,6 +110,18 @@ def upload_to_s3(source: Path, bucket: str, key: str) -> str:
     return key
 
 
+def s3_object_exists(bucket: str, key: str) -> bool:
+    client = _boto3_client("s3")
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+        return True
+    except Exception as exc:
+        error = getattr(exc, "response", {}).get("Error", {})
+        if error.get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise RuntimeError(f"Failed to check s3://{bucket}/{key}: {exc}") from exc
+
+
 def upload_path_to_configured_s3(source: Path) -> tuple[str | None, str | None]:
     bucket, key = s3_location_for_path(source)
     if not bucket:
@@ -125,3 +137,59 @@ def list_s3_keys(bucket: str, prefix: str = "") -> list[str]:
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         keys.extend(item["Key"] for item in page.get("Contents", []))
     return keys
+
+
+def delete_s3_key_versions(bucket: str, key: str) -> int:
+    client = _boto3_client("s3")
+    deleted_count = 0
+
+    paginator = client.get_paginator("list_object_versions")
+    for page in paginator.paginate(Bucket=bucket, Prefix=key):
+        objects = [
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in page.get("Versions", [])
+            if item["Key"] == key
+        ]
+        objects.extend(
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in page.get("DeleteMarkers", [])
+            if item["Key"] == key
+        )
+        if not objects:
+            continue
+
+        response = client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": objects, "Quiet": True},
+        )
+        deleted_count += len(objects) - len(response.get("Errors", []))
+
+    return deleted_count
+
+
+def delete_s3_prefix_versions(bucket: str, prefix: str) -> int:
+    client = _boto3_client("s3")
+    deleted_count = 0
+
+    paginator = client.get_paginator("list_object_versions")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        objects = [
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in page.get("Versions", [])
+        ]
+        objects.extend(
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in page.get("DeleteMarkers", [])
+        )
+        if not objects:
+            continue
+
+        for index in range(0, len(objects), 1000):
+            batch = objects[index : index + 1000]
+            response = client.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": batch, "Quiet": True},
+            )
+            deleted_count += len(batch) - len(response.get("Errors", []))
+
+    return deleted_count

@@ -42,6 +42,12 @@ Coletar o CSV fixo do projeto:
 python3 scripts/collect_data.py
 ```
 
+Por padrão, a coleta também tenta subir o CSV para o S3 configurado e não sobrescreve o objeto se ele já existir. Para salvar apenas localmente:
+
+```bash
+python3 scripts/collect_data.py --no-upload-s3
+```
+
 Treinar e comparar todas as arquiteturas de RNN clássica e LSTM:
 
 ```bash
@@ -156,6 +162,7 @@ Endpoints:
 - `GET /models`: lista modelos disponíveis e caminhos esperados dos artefatos.
 - `GET /data/tickers`: lista tickers com dados locais ou no S3.
 - `GET /data/{symbol}`: lista arquivos de dados disponíveis para um ticker.
+- `DELETE /data/{symbol}`: remove dados locais e objetos/versões no S3 para um ticker.
 - `POST /predict?model=best`: previsão do próximo fechamento.
 - `GET /metrics`: métricas Prometheus.
 
@@ -201,10 +208,27 @@ curl -X POST "http://localhost:8000/collect" \
   }'
 ```
 
+`upload_s3` é `true` por padrão. Antes de enviar ao S3, a API verifica se o objeto já existe; se existir, ela preserva o arquivo remoto e retorna `s3_object_already_exists: true`.
+
 Com `DATA_S3_BUCKET=capizani-techchallenge-4` e `DATA_S3_PREFIX=""`, a coleta salva dados agrupados por ticker em:
 
 ```text
 s3://capizani-techchallenge-4/data/raw/PETR4.SA/PETR4.SA.csv
+```
+
+Para limpar dados de um ticker:
+
+```bash
+curl -X DELETE "http://localhost:8000/data/PETR4.SA"
+```
+
+Esse endpoint remove os paths locais `data/raw/{TICKER}` e `data/processed/{TICKER}`, além dos objetos e versões no S3 para os layouts novo e legado:
+
+```text
+data/raw/PETR4.SA/
+data/processed/PETR4.SA/
+data/raw/PETR4.SA.csv
+data/processed/PETR4.SA.csv
 ```
 
 Os modelos existentes continuam no layout atual:
