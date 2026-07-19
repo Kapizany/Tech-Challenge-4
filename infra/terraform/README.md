@@ -2,6 +2,8 @@
 
 This Terraform stack provisions the AWS infrastructure needed to run the stock forecast API on ECS Fargate.
 
+The default task size is `512` CPU units and `2048` MiB memory, which keeps Fargate cost low while giving TensorFlow/Keras more room to load the saved models. To reduce cost further, you can test `task_cpu = 256` and `task_memory = 1024`, but that may cause out-of-memory restarts depending on model size.
+
 ## Resources
 
 - Single S3 bucket for data, model and report artifacts.

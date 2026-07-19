@@ -1,6 +1,6 @@
 # PETR4.SA Stock Forecast
 
-Projeto para o Tech Challenge Fase 4: coleta de dados, comparação entre RNN clássica e LSTM, e API FastAPI para prever o fechamento do próximo pregão de `PETR4.SA`.
+Aplicação para coletar dados históricos de ações, treinar modelos recorrentes e disponibilizar previsões do fechamento do próximo pregão via API FastAPI. O ticker padrão do projeto é `PETR4.SA`, mas a coleta e os endpoints de dados também aceitam outros tickers.
 
 ## Setup
 
@@ -15,9 +15,9 @@ Este projeto usa `tensorflow-cpu` por padrão. Em máquinas sem CUDA/cuDNN, isso
 
 ## Modelos e Arquiteturas
 
-Sim, o projeto treina **RNN clássica** e **LSTM**.
+O projeto treina e compara duas famílias de modelos recorrentes: **RNN clássica** e **LSTM**.
 
-O script principal de comparação é `scripts/train_recurrent_models.py`. Ele usa os mesmos dados, o mesmo split temporal e as mesmas métricas para todas as arquiteturas, permitindo comparar a diferença prática entre uma RNN simples e uma LSTM.
+O script principal é `scripts/train_recurrent_models.py`. Ele treina todas as arquiteturas abaixo usando a mesma base, o mesmo split temporal e as mesmas métricas. Assim, a comparação entre RNN e LSTM fica direta e reproduzível.
 
 Arquiteturas testadas por padrão:
 
@@ -30,40 +30,33 @@ Arquiteturas testadas por padrão:
 | `lstm_stacked_45` | LSTM | 45 pregões | 64 + 32 unidades | 0.2 | 0.0008 | 32 |
 | `lstm_wide_60` | LSTM | 60 pregões | 96 unidades | 0.2 | 0.0008 | 16 |
 
-Todas preveem o `Close` do próximo pregão usando as colunas `Open`, `High`, `Low`, `Close` e `Volume`. A divisão dos dados é temporal, sem embaralhar: 70% treino, 15% validação e 15% teste. As métricas salvas são MAE, RMSE e MAPE.
+Todas as arquiteturas preveem o `Close` do próximo pregão usando as colunas `Open`, `High`, `Low`, `Close` e `Volume`. A divisão dos dados é temporal, sem embaralhar: 70% treino, 15% validação e 15% teste. As métricas acompanhadas são MAE, RMSE e MAPE.
 
-Além disso, existe `scripts/train_lstm.py`, que treina somente uma LSTM com busca de hiperparâmetros via Optuna, e é opcional. 
+## Treinamento e Uso
 
-## Pipeline
+Fluxo curto para treinar e usar os modelos:
 
-Coletar o CSV fixo do projeto:
+1. Coletar os dados históricos:
 
 ```bash
 python3 scripts/collect_data.py
 ```
 
-Por padrão, a coleta também tenta subir o CSV para o S3 configurado e não sobrescreve o objeto se ele já existir. Para salvar apenas localmente:
+Esse comando baixa o histórico padrão de `PETR4.SA`, salva o CSV em `data/raw/PETR4.SA.csv` e faz backup no S3 quando `DATA_S3_BUCKET` está configurado. O upload não sobrescreve um objeto remoto já existente.
+
+Para salvar apenas localmente:
 
 ```bash
 python3 scripts/collect_data.py --no-upload-s3
 ```
 
-Treinar e comparar todas as arquiteturas de RNN clássica e LSTM:
+2. Treinar e comparar RNN e LSTM:
 
 ```bash
 python3 scripts/train_recurrent_models.py --epochs 80
 ```
 
-Esse comando:
-
-- treina as 3 arquiteturas RNN e as 3 arquiteturas LSTM;
-- escolhe a melhor RNN por RMSE no teste;
-- escolhe a melhor LSTM por RMSE no teste;
-- salva `models/rnn.keras` e `models/lstm.keras` somente quando o novo RMSE de teste for melhor que o modelo já salvo;
-- salva scalers/metadados em `models/rnn_bundle.joblib` e `models/lstm_bundle.joblib`;
-- atualiza `reports/metrics.json`, `reports/best_model.json` e `reports/recurrent_architecture_comparison.json`.
-
-Se já existir um modelo salvo, o treinamento novo é comparado contra o RMSE registrado em `reports/metrics.json`. O artefato anterior é preservado quando o novo treino não melhora a métrica de teste. Se algum artefato esperado estiver faltando, o script salva o novo modelo mesmo que a métrica não tenha melhorado, para recompor o pacote de inferência.
+O treino testa as arquiteturas configuradas, escolhe a melhor RNN e a melhor LSTM por RMSE no teste temporal, salva os modelos em `models/` e atualiza os relatórios em `reports/`. Se já existir um modelo salvo, ele só é substituído quando o novo RMSE de teste for melhor.
 
 Treinar somente algumas arquiteturas específicas:
 
@@ -73,31 +66,21 @@ python3 scripts/train_recurrent_models.py \
   --architectures rnn_simple_30 lstm_simple_30 lstm_stacked_45
 ```
 
-Teste rápido do pipeline, útil antes de um treino completo:
+Teste rápido antes de um treino completo:
 
 ```bash
 python3 scripts/train_recurrent_models.py --epochs 3 --patience 1
 ```
 
-Opcional: treinar apenas uma LSTM com busca de hiperparâmetros via Optuna:
+3. Gerar previsão pela linha de comando:
 
-```bash
-python3 scripts/train_lstm.py --trials 40
-```
-
-Opcional: validar rapidamente o Optuna com poucos trials:
-
-```bash
-python3 scripts/train_lstm.py --trials 2
-```
-
-Gerar a previsão do próximo pregão usando o melhor modelo por RMSE:
+Usando o melhor modelo por RMSE:
 
 ```bash
 python3 scripts/predict.py --model best
 ```
 
-Gerar previsão escolhendo explicitamente a família do modelo:
+Escolhendo explicitamente a família do modelo:
 
 ```bash
 python3 scripts/predict.py --model rnn
@@ -155,20 +138,23 @@ Subir a API:
 uvicorn app.main:app --reload
 ```
 
-Endpoints:
+Endpoints úteis:
 
-- `GET /health`: status e modelo vencedor.
-- `POST /collect`: coleta OHLCV por ticker/período, salva CSV local e opcionalmente envia ao S3.
-- `GET /models`: lista modelos disponíveis e caminhos esperados dos artefatos.
-- `GET /data/tickers`: lista tickers com dados locais ou no S3.
-- `GET /data/{symbol}`: lista arquivos de dados disponíveis para um ticker.
-- `DELETE /data/{symbol}`: remove dados locais e objetos/versões no S3 para um ticker.
-- `POST /predict?model=best`: previsão do próximo fechamento.
-- `GET /metrics`: métricas Prometheus.
+- `GET /health`: verifica se a API está no ar e informa o modelo vencedor.
+- `POST /predict?model=best`: prevê o próximo fechamento usando o melhor modelo salvo.
+- `POST /predict?model=lstm`: força a previsão com LSTM.
+- `POST /predict?model=rnn`: força a previsão com RNN.
+- `POST /collect`: coleta OHLCV por ticker/período, salva CSV local e faz backup no S3 quando habilitado.
+- `GET /models`: lista modelos disponíveis e artefatos esperados.
+- `GET /data/tickers`: lista tickers com dados disponíveis localmente ou no S3.
+- `GET /data/{symbol}`: lista arquivos de dados de um ticker.
+- `DELETE /data/{symbol}`: remove dados locais e objetos/versões no S3 de um ticker.
 
-A API registra tracing de requisições em JSON no stdout, que no ECS é enviado ao CloudWatch Logs. Por padrão, `/health` e `/metrics` são ignorados para reduzir ruído. Cada chamada inclui `request_id`, método, path, query params, status code, duração em milissegundos, IP do client e, quando habilitado, body de request/response truncado.
+No ECS, os logs da aplicação são enviados para o CloudWatch Logs e as métricas operacionais ficam disponíveis pelo CloudWatch/ECS, como CPU, memória, rede e status das tasks. A API também registra cada requisição em JSON no stdout, incluindo tempo de resposta e status code. Por padrão, `/health` e `/metrics` são ignorados para reduzir ruído.
 
-Variáveis de tracing:
+Cada chamada registrada inclui `request_id`, método, path, query params, status code, duração em milissegundos, IP do client e, quando habilitado, body de request/response truncado.
+
+Variáveis de log de requisições:
 
 | Variável | Padrão | Uso |
 | --- | --- | --- |
@@ -176,6 +162,29 @@ Variáveis de tracing:
 | `TRACE_LOG_BODIES` | `true` | Liga/desliga logging de bodies. |
 | `TRACE_MAX_BODY_CHARS` | `4000` | Limite de caracteres para request/response body. |
 | `TRACE_EXCLUDED_PATHS` | `/health,/metrics` | Paths ignorados pelo tracing, separados por vírgula. |
+
+Payloads completos para testar a previsão estão em `examples/`:
+
+- `examples/predict_lstm_payload.json`
+- `examples/predict_rnn_payload.json`
+
+Esses arquivos já têm o formato esperado pelo endpoint `/predict` e podem ser usados diretamente com `curl` ou importados em ferramentas como Postman e Insomnia.
+
+Exemplo usando o payload salvo da LSTM:
+
+```bash
+curl -X POST "http://localhost:8000/predict?model=lstm" \
+  -H "Content-Type: application/json" \
+  -d @examples/predict_lstm_payload.json
+```
+
+Exemplo usando o payload salvo da RNN:
+
+```bash
+curl -X POST "http://localhost:8000/predict?model=rnn" \
+  -H "Content-Type: application/json" \
+  -d @examples/predict_rnn_payload.json
+```
 
 Exemplo abreviado de payload para `/predict`:
 
@@ -208,7 +217,7 @@ curl -X POST "http://localhost:8000/collect" \
   }'
 ```
 
-`upload_s3` é `true` por padrão. Antes de enviar ao S3, a API verifica se o objeto já existe; se existir, ela preserva o arquivo remoto e retorna `s3_object_already_exists: true`.
+`upload_s3` é `true` por padrão. Assim, toda coleta feita pela API salva o CSV localmente e também mantém um backup no S3 configurado. Antes do upload, a API verifica se o objeto já existe; se existir, ela preserva o arquivo remoto e retorna `s3_object_already_exists: true`.
 
 Com `DATA_S3_BUCKET=capizani-techchallenge-4` e `DATA_S3_PREFIX=""`, a coleta salva dados agrupados por ticker em:
 
@@ -242,7 +251,7 @@ s3://capizani-techchallenge-4/ml-data/reports/best_model.json
 s3://capizani-techchallenge-4/ml-data/reports/metrics.json
 ```
 
-O payload real precisa repetir esse formato para histórico suficiente: pelo menos a janela treinada para a RNN/LSTM escolhida.
+O payload real precisa repetir esse formato para histórico suficiente: pelo menos a janela treinada para a RNN/LSTM escolhida. Os payloads em `examples/` já respeitam essa regra.
 
 ### Exemplos reais de chamada
 
@@ -258,7 +267,7 @@ Ou via Docker:
 docker compose up --build
 ```
 
-Exemplo real para o **modelo LSTM** usando os últimos 30 pregões do CSV do projeto:
+Também é possível gerar o payload a partir do CSV local. O exemplo abaixo usa os últimos 30 pregões para chamar o **modelo LSTM**:
 
 ```bash
 python3 - <<'PY' | curl -s -X POST "http://localhost:8000/predict?model=lstm" \
@@ -286,7 +295,7 @@ print(json.dumps({"symbol": "PETR4.SA", "history": history}))
 PY
 ```
 
-Exemplo real para o **modelo RNN** usando os últimos 60 pregões do CSV do projeto:
+O exemplo abaixo usa os últimos 60 pregões para chamar o **modelo RNN**:
 
 ```bash
 python3 - <<'PY' | curl -s -X POST "http://localhost:8000/predict?model=rnn" \
@@ -357,6 +366,8 @@ Os arquivos `models/lstm.keras`, `models/lstm_bundle.joblib`, `models/rnn.keras`
 ## ECS Fargate
 
 Existe uma task definition base em `infra/ecs-task-definition.json` para rodar a API no ECS Fargate.
+
+Por padrão, a task usa `512` CPU units e `2048` MiB de memória, uma configuração econômica para Fargate e mais confortável para carregar TensorFlow/Keras. Para reduzir ainda mais custo, é possível testar `256` CPU units e `1024` MiB, mas essa opção pode reiniciar por falta de memória dependendo do tamanho dos modelos.
 
 Antes de registrar, ajuste:
 
